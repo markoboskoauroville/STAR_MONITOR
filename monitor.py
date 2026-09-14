@@ -1,0 +1,557 @@
+#!/usr/bin/env python3
+"""
+STAR MONITOR, a page at http://127.0.0.1:8851 that manages every app of the star menu.
+
+Marko's request, 14.9.2026: "build a star monitor, the application in a web interface which
+starts and stops all applications. I can manage them, I can start, I can stop. I can also reorder
+them in that view, which are most important will go to the top. Track how much time I'm running
+some applications, and in a sorting order give me top, by alphabet, by application, so it's easy
+to manage all these applications. The list is growing rapidly. Especially managing for the next
+run: what stays, what is just when I restart, which doesn't stay: permanent application and
+non-permanent one."
+
+WHERE THE TRUTH IS: the star itself (MANTRA_STAR/star.lua, inside Hammerspoon). This server owns
+nothing; it asks the star through the `hs` command line, which answers in a tenth of a second:
+    STAR.state()                 every app: key, name, glyph, folder, order, running, permanent
+    STAR.command(key, what)      start | stop | permanent | fornow
+    STAR.order({keys})           the whole order after a drag
+and it reads the time ledger the star writes once a minute, ~/.config/star-time.json:
+    { "<key>": { "days": { "2026-09-14": 3600 }, "starts": 3, "last_start": ts, "last_stop": ts } }
+
+PERMANENT AND FOR NOW: a permanent app is started at every load of the star; an app that is for
+now runs until it is stopped or Hammerspoon quits, and does not come back. The set is
+~/.config/star-permanent.json, written by the star at this page's word. An always-on app (the Dock
+Switcher, the menu bar) is permanent whatever anyone says.
+
+    monitor.py                   the server, in the foreground (the star starts it detached)
+    GET  /                       the page
+    GET  /api/state              the apps, with today / 7 days / all time / running since
+    POST /api/<key>/start        start one app (the star's own start(), a few seconds for a server)
+    POST /api/<key>/stop         stop one app
+    POST /api/<key>/permanent    { "on": true|false }   permanent, or for now
+    POST /api/order              { "keys": [...] }      the new order of the star menu
+    POST /api/alloff             stop every app that is not always on
+    GET  /health                 200 when up
+    POST /quit                   stop the server
+
+The page asks /api/state every five seconds (a setting on the page, kept in the browser) and
+never while a row is being dragged. Views: MY ORDER (drag a row, or the arrows), ALPHABET,
+MOST RUN (today, 7 days, all time), BY FOLDER, RUNNING FIRST. A filter box narrows the list as
+he types. Nothing here needs the network or a key.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import threading
+import time
+from datetime import date, timedelta
+
+from flask import Flask, Response, jsonify, request
+
+HOME = os.path.expanduser("~")
+HS = "/opt/homebrew/bin/hs"
+PORT = 8851
+TIME_FILE = os.path.join(HOME, ".config", "star-time.json")
+STATE_DIR = os.path.join(HOME, ".star_monitor")
+
+app = Flask(__name__)
+LOCK = threading.Lock()          # one question to the star at a time
+CACHE = {"at": 0.0, "state": None}
+
+
+# ---------------------------------------------------------------- the star
+def ask_star(lua, timeout=25):
+    """Run one Lua line inside Hammerspoon and return (ok, text). The hs tool prints the returned
+    value; a Lua error comes back with exit code 65 and the message, a dead Hammerspoon with a
+    connection error. Serialised: the star is one thread and so is this."""
+    with LOCK:
+        try:
+            r = subprocess.run([HS, "-t", str(timeout), "-c", lua],
+                               capture_output=True, text=True, timeout=timeout + 5)
+        except FileNotFoundError:
+            return False, "the hs command line is not installed (Hammerspoon > hs.ipc.cliInstall)"
+        except subprocess.TimeoutExpired:
+            return False, "the star did not answer in %d seconds" % timeout
+    out = (r.stdout or "").strip()
+    err = (r.stderr or "").strip()
+    if r.returncode != 0:
+        return False, out or err or ("hs exited %d" % r.returncode)
+    return True, out
+
+
+def star_json(lua):
+    ok, text = ask_star(lua)
+    if not ok:
+        return None, text
+    try:
+        return json.loads(text), None
+    except ValueError:
+        return None, "the star answered something that is not JSON: " + text[:200]
+
+
+def star_state(fresh=False):
+    """The star's view of every app, cached for a moment so a burst of requests asks once."""
+    now = time.time()
+    if not fresh and CACHE["state"] is not None and now - CACHE["at"] < 1.5:
+        return CACHE["state"], None
+    st, err = star_json("return hs.json.encode(STAR.state())")
+    if st is None:
+        return None, err
+    if not isinstance(st, dict) or not isinstance(st.get("apps"), list):
+        return None, "the star has no STAR.state(): restart Hammerspoon so the new star.lua loads"
+    CACHE["state"], CACHE["at"] = st, now
+    return st, None
+
+
+def star_command(key, what):
+    ok, res = ask_star('return hs.json.encode({STAR.command(%s, %s)})' % (json.dumps(key), json.dumps(what)))
+    CACHE["state"] = None
+    if not ok:
+        return False, res
+    try:
+        pair = json.loads(res)
+        return bool(pair[0]), str(pair[1]) if len(pair) > 1 else ""
+    except (ValueError, IndexError, TypeError):
+        return False, "the star answered: " + res[:200]
+
+
+# ---------------------------------------------------------------- the ledger
+def read_ledger():
+    try:
+        with open(TIME_FILE) as f:
+            t = json.load(f)
+        return t if isinstance(t, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def times_of(entry, running, now):
+    """today, the last seven days, all time, in seconds; starts; since (seconds running now)."""
+    entry = entry if isinstance(entry, dict) else {}
+    days = entry.get("days")
+    if not isinstance(days, dict):
+        days = {}
+    today = date.today()
+    week_keys = {(today - timedelta(days=i)).isoformat() for i in range(7)}
+    tod = float(days.get(today.isoformat(), 0) or 0)
+    week = sum(float(v or 0) for k, v in days.items() if k in week_keys)
+    total = sum(float(v or 0) for v in days.values())
+    since = 0
+    ls = entry.get("last_start")
+    if running and isinstance(ls, (int, float)) and ls > 0:
+        since = max(0, int(now - ls))
+    return {
+        "today": int(tod), "week": int(week), "total": int(total),
+        "starts": int(entry.get("starts") or 0), "since": since,
+        "last_stop": entry.get("last_stop"), "last_start": ls,
+    }
+
+
+def full_state(fresh=False):
+    st, err = star_state(fresh)
+    now = time.time()
+    if st is None:
+        return {"error": err, "apps": [], "time": now}
+    ledger = read_ledger()
+    apps = []
+    for a in st["apps"]:
+        a = dict(a)
+        a.update(times_of(ledger.get(a["key"]), a.get("running"), now))
+        apps.append(a)
+    return {"apps": apps, "folders": st.get("folders", True), "groups": st.get("groups", []),
+            "time": now, "error": None}
+
+
+# ---------------------------------------------------------------- the routes
+@app.route("/health")
+def health():
+    return "ok"
+
+
+@app.route("/api/state")
+def api_state():
+    return jsonify(full_state(fresh=request.args.get("fresh") == "1"))
+
+
+@app.route("/api/<key>/<what>", methods=["POST"])
+def api_command(key, what):
+    if what == "permanent":
+        body = request.get_json(silent=True) or {}
+        what = "permanent" if body.get("on", True) else "fornow"
+    if what not in ("start", "stop", "permanent", "fornow"):
+        return jsonify({"ok": False, "msg": "unknown command"}), 400
+    ok, msg = star_command(key, what)
+    return jsonify({"ok": ok, "msg": msg, "state": full_state(fresh=True)})
+
+
+@app.route("/api/order", methods=["POST"])
+def api_order():
+    body = request.get_json(silent=True) or {}
+    keys = body.get("keys")
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        return jsonify({"ok": False, "msg": "keys must be a list of strings"}), 400
+    lua = "return hs.json.encode({STAR.order(hs.json.decode(%s))})" % json.dumps(json.dumps(keys))
+    ok, res = ask_star(lua)
+    CACHE["state"] = None
+    return jsonify({"ok": ok, "msg": res if not ok else "ordered", "state": full_state(fresh=True)})
+
+
+@app.route("/api/alloff", methods=["POST"])
+def api_alloff():
+    ok, res = ask_star("STAR.allOff(); return 'all off'", timeout=60)
+    CACHE["state"] = None
+    return jsonify({"ok": ok, "msg": res, "state": full_state(fresh=True)})
+
+
+@app.route("/quit", methods=["POST"])
+def quit_server():
+    threading.Timer(0.3, lambda: os._exit(0)).start()
+    return "bye"
+
+
+@app.route("/")
+def page():
+    return Response(PAGE, mimetype="text/html")
+
+
+# ---------------------------------------------------------------- the page
+PAGE = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Star Monitor</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; background: #151517; color: #e8e8e8; font: 14px/1.4 -apple-system, "Helvetica Neue", sans-serif; }
+  body { padding: 18px 22px 40px; -webkit-user-select: none; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; color: #fff; letter-spacing: .2px; }
+  h1 .star { color: rgba(255,255,255,.6); margin-right: 8px; }
+  .sub { color: #8e8e93; font-size: 12.5px; margin: 3px 0 14px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 14px; }
+  .seg { display: inline-flex; background: #1f1f22; border: 1px solid #2c2c2e; border-radius: 9px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: #b5b5ba; padding: 6px 11px; font: 12.5px -apple-system, sans-serif; cursor: pointer; letter-spacing: .3px; }
+  .seg button:hover { color: #fff; background: #26262a; }
+  .seg button.on { background: #3a3a40; color: #fff; }
+  .seg button.on.today, .seg button.on.week, .seg button.on.total { background: #2f4a6a; }
+  input.filter { background: #1f1f22; border: 1px solid #2c2c2e; border-radius: 9px; color: #fff; padding: 6px 10px; font: 13px -apple-system, sans-serif; width: 190px; }
+  input.filter:focus { outline: none; border-color: #4a6fa5; }
+  .spacer { flex: 1; }
+  .count { color: #8e8e93; font-size: 12.5px; }
+  .count b { color: #4cd964; font-weight: 600; }
+  .danger { background: #2a1d1d; border: 1px solid #5a2a2a; color: #ff6b6b; border-radius: 9px; padding: 6px 11px; font: 12.5px -apple-system, sans-serif; cursor: pointer; }
+  .danger:hover { background: #3a2222; }
+  .danger.sure { background: #7a2a2a; color: #fff; border-color: #a33; }
+  .danger[disabled] { opacity: .35; cursor: default; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; color: #6e6e73; font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; padding: 4px 8px 8px; border-bottom: 1px solid #2c2c2e; }
+  th.r, td.r { text-align: right; }
+  td { padding: 7px 8px; border-top: 1px solid #222225; vertical-align: middle; white-space: nowrap; }
+  tr:first-child td { border-top: 0; }
+  tr.row { transition: background .15s; }
+  tr.row:hover { background: #1c1c1f; }
+  tr.row.dragging { opacity: .35; }
+  tr.row.over-top td { border-top: 2px solid #4a8cff; }
+  tr.row.over-bottom td { border-bottom: 2px solid #4a8cff; }
+  tr.head td { padding: 14px 8px 4px; color: #8e8e93; font-size: 11.5px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; border-top: 0; }
+  td.n { width: 28px; text-align: right; color: #6e6e73; font-variant-numeric: tabular-nums; }
+  td.h { width: 18px; color: #48484c; cursor: grab; font-size: 15px; text-align: center; }
+  td.h:hover { color: #9a9a9e; }
+  td.g { width: 28px; text-align: center; font-size: 16px; opacity: .5; }
+  tr.on td.g { opacity: 1; }
+  td.name { white-space: normal; min-width: 180px; }
+  td.name .nm { color: #f2f2f2; font-weight: 500; }
+  tr.on td.name .nm { color: #fff; }
+  td.name .desc { display: block; color: #6e6e73; font-size: 11.5px; margin-top: 1px; white-space: normal; }
+  td.name .tag { display: inline-block; margin-left: 8px; color: #8e8e93; background: #232326; border-radius: 5px; padding: 0 6px; font-size: 10.5px; vertical-align: 1px; }
+  td.st { width: 130px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #48484c; margin-right: 7px; vertical-align: 0; }
+  tr.on .dot { background: #4cd964; box-shadow: 0 0 6px #4cd96488; }
+  .since { color: #8e8e93; font-size: 12px; }
+  tr.on .since { color: #cfd; }
+  td.t { width: 78px; font-variant-numeric: tabular-nums; color: #b5b5ba; }
+  td.t.big { color: #fff; font-weight: 500; }
+  td.t .meter { display: block; height: 3px; background: #2f4a6a; border-radius: 2px; margin-top: 3px; }
+  td.t .zero { color: #48484c; }
+  td.act { width: 92px; text-align: right; }
+  td.perm { width: 108px; text-align: right; }
+  td.mv { width: 46px; text-align: right; white-space: nowrap; }
+  button.b { border: 1px solid #3a3a3c; background: #232326; color: #e8e8e8; border-radius: 7px; padding: 4px 10px; font: 12px -apple-system, sans-serif; cursor: pointer; min-width: 62px; letter-spacing: .3px; }
+  button.b:hover { background: #2c2c30; border-color: #4a4a4e; }
+  button.b.start { color: #4cd964; border-color: #2e5c3a; }
+  button.b.start:hover { background: #1f3a27; }
+  button.b.stop { color: #ff7b72; border-color: #5a2f2c; }
+  button.b.stop:hover { background: #3a2321; }
+  button.b.busy { color: #8e8e93; border-color: #3a3a3c; cursor: default; }
+  button.b.always { color: #6e6e73; border-color: #2c2c2e; cursor: default; }
+  button.pill { border: 1px solid #3a3a3c; background: #1f1f22; color: #8e8e93; border-radius: 12px; padding: 3px 10px; font: 11.5px -apple-system, sans-serif; cursor: pointer; min-width: 96px; letter-spacing: .4px; }
+  button.pill.permanent { color: #f7c948; border-color: #6b5a20; background: #2a2510; }
+  button.pill.permanent:hover { background: #3a3315; }
+  button.pill.fornow:hover { color: #fff; background: #26262a; }
+  button.pill.locked { cursor: default; opacity: .8; }
+  button.arrow { border: 0; background: none; color: #6e6e73; cursor: pointer; font-size: 12px; padding: 2px 3px; }
+  button.arrow:hover { color: #fff; }
+  button.arrow[disabled] { opacity: .2; cursor: default; }
+  .foot { margin-top: 16px; color: #6e6e73; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .foot select { background: #1f1f22; color: #ddd; border: 1px solid #2c2c2e; border-radius: 6px; padding: 2px 5px; font: 12px -apple-system, sans-serif; }
+  .err { background: #3a1e1e; border: 1px solid #6a2a2a; color: #ffb4b0; border-radius: 9px; padding: 10px 14px; margin-bottom: 14px; white-space: pre-wrap; }
+  .msg { color: #8e8e93; font-size: 12px; min-height: 16px; margin: 0 0 8px; }
+  .legend { color: #6e6e73; font-size: 12px; margin-top: 8px; }
+  .legend b { color: #f7c948; font-weight: 500; }
+  @media (max-width: 760px) { td.name .desc { display: none; } th.t7, td.t7, th.tall, td.tall { display: none; } }
+</style></head><body>
+<h1><span class="star">✡</span>Star Monitor</h1>
+<div class="sub">Every app of the star: start, stop, put the important ones on top, and say which come back after a restart.</div>
+<div id="err" class="err" hidden></div>
+<div class="bar">
+  <div class="seg" id="views">
+    <button data-view="order">MY ORDER</button>
+    <button data-view="alpha">ALPHABET</button>
+    <button data-view="top">MOST RUN</button>
+    <button data-view="folder">BY FOLDER</button>
+    <button data-view="running">RUNNING FIRST</button>
+  </div>
+  <div class="seg" id="spans">
+    <button data-span="today" class="today">TODAY</button>
+    <button data-span="week" class="week">7 DAYS</button>
+    <button data-span="total" class="total">ALL TIME</button>
+  </div>
+  <input class="filter" id="filter" placeholder="filter by name…" autocomplete="off">
+  <div class="spacer"></div>
+  <span class="count" id="count"></span>
+  <button class="danger" id="alloff">ALL OFF</button>
+</div>
+<div class="msg" id="msg"></div>
+<table>
+  <thead><tr id="thead"></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<div class="legend"><b>PERMANENT</b> comes back at every start of the star. <span style="color:#b5b5ba">FOR NOW</span> runs until you stop it or Hammerspoon quits, and stays off after a restart. The star adds a minute of running time to every app that is on, once a minute; a sleeping Mac counts nothing.</div>
+<div class="foot">
+  <span>refresh every <select id="every"><option value="2">2 s</option><option value="5" selected>5 s</option><option value="10">10 s</option><option value="30">30 s</option><option value="0">never</option></select></span>
+  <span id="asked"></span>
+</div>
+<script>
+(function () {
+  var S = { apps: [], view: 'order', span: 'today', filter: '', busy: {}, dragging: null, timer: null, every: 5, sure: null };
+  try {
+    S.view = localStorage.getItem('sm.view') || 'order';
+    S.span = localStorage.getItem('sm.span') || 'today';
+    S.every = parseInt(localStorage.getItem('sm.every') || '5', 10);
+  } catch (e) {}
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  function fmt(sec) {
+    sec = Math.round(sec || 0);
+    if (sec <= 0) return '';
+    if (sec < 60) return sec + 's';
+    var m = Math.round(sec / 60);
+    if (m < 60) return m + 'm';
+    var h = Math.floor(m / 60); m = m % 60;
+    if (h < 24) return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+    var d = Math.floor(h / 24); h = h % 24;
+    return d + 'd ' + h + 'h';
+  }
+  function shortName(n) { var i = n.indexOf(' ('); return i > 0 ? n.slice(0, i) : n; }
+  function descOf(n) { var i = n.indexOf(' ('); return i > 0 ? n.slice(i + 2).replace(/\)\s*$/, '') : ''; }
+
+  function setView(v) { S.view = v; try { localStorage.setItem('sm.view', v); } catch (e) {} render(); }
+  function setSpan(v) { S.span = v; try { localStorage.setItem('sm.span', v); } catch (e) {} render(); }
+
+  function sorted() {
+    var apps = S.apps.slice();
+    var f = S.filter.trim().toLowerCase();
+    if (f) apps = apps.filter(function (a) { return (a.name + ' ' + a.key + ' ' + a.group).toLowerCase().indexOf(f) >= 0; });
+    var byOrder = function (a, b) { return a.order - b.order; };
+    var byName = function (a, b) { return shortName(a.name).localeCompare(shortName(b.name), undefined, { sensitivity: 'base' }); };
+    if (S.view === 'alpha') apps.sort(byName);
+    else if (S.view === 'top') apps.sort(function (a, b) { return (b[S.span] - a[S.span]) || byName(a, b); });
+    else if (S.view === 'running') apps.sort(function (a, b) { return ((b.running ? 1 : 0) - (a.running ? 1 : 0)) || byOrder(a, b); });
+    else apps.sort(byOrder);
+    return apps;
+  }
+
+  function render() {
+    document.querySelectorAll('#views button').forEach(function (b) { b.classList.toggle('on', b.dataset.view === S.view); });
+    document.querySelectorAll('#spans button').forEach(function (b) { b.classList.toggle('on', b.dataset.span === S.span); });
+    var apps = sorted();
+    var on = S.apps.filter(function (a) { return a.running; }).length;
+    $('count').innerHTML = '<b>' + on + '</b> of ' + S.apps.length + ' on';
+    $('alloff').disabled = on === 0;
+    var draggable = S.view === 'order' && !S.filter.trim();
+    var max = 1; apps.forEach(function (a) { max = Math.max(max, a[S.span] || 0); });
+    var spanName = { today: 'today', week: '7 days', total: 'all time' };
+    $('thead').innerHTML = (draggable ? '<th></th>' : '') + '<th>#</th><th></th><th>App</th><th>Status</th>' +
+      '<th class="r ' + (S.span === 'today' ? 'big' : '') + '">Today</th><th class="r t7">7 days</th><th class="r tall">All time</th>' +
+      '<th class="r">Starts</th><th></th><th class="r">Next run</th>' + (draggable ? '<th></th>' : '');
+    var html = '', lastGroup = null;
+    apps.forEach(function (a, i) {
+      if (S.view === 'folder' && a.group !== lastGroup) {
+        lastGroup = a.group;
+        html += '<tr class="head"><td colspan="12">' + esc(a.group) + '</td></tr>';
+      }
+      var busy = S.busy[a.key];
+      var act;
+      if (busy) act = '<button class="b busy" disabled>' + esc(busy) + '</button>';
+      else if (a.running && a.always) act = '<button class="b always" disabled title="always on">ALWAYS</button>';
+      else if (a.running) act = '<button class="b stop" data-act="stop" data-key="' + esc(a.key) + '">STOP</button>';
+      else act = '<button class="b start" data-act="start" data-key="' + esc(a.key) + '">START</button>';
+      var perm = a.always
+        ? '<button class="pill permanent locked" disabled title="always on: it cannot be turned off">ALWAYS ON</button>'
+        : (a.permanent
+          ? '<button class="pill permanent" data-perm="0" data-key="' + esc(a.key) + '" title="comes back at every start of the star; click to make it for now">PERMANENT</button>'
+          : '<button class="pill fornow" data-perm="1" data-key="' + esc(a.key) + '" title="does not come back after a restart; click to make it permanent">FOR NOW</button>');
+      var status = '<span class="dot"></span><span class="since">' + (a.running ? (a.since ? 'on for ' + fmt(a.since) : 'on') : (a.last_stop ? 'off' : 'off')) + '</span>';
+      var cell = function (k, cls) {
+        var v = a[k] || 0;
+        var meter = (S.view === 'top' && S.span === k && v > 0) ? '<span class="meter" style="width:' + Math.max(4, Math.round(100 * v / max)) + '%"></span>' : '';
+        return '<td class="t r ' + cls + (S.span === k ? ' big' : '') + '">' + (v > 0 ? fmt(v) : '<span class="zero">—</span>') + meter + '</td>';
+      };
+      var desc = descOf(a.name);
+      html += '<tr class="row' + (a.running ? ' on' : '') + '" data-key="' + esc(a.key) + '"' + (draggable ? ' draggable="true"' : '') + '>' +
+        (draggable ? '<td class="h" title="drag to move">⋮⋮</td>' : '') +
+        '<td class="n">' + a.order + '</td><td class="g">' + esc(a.glyph) + '</td>' +
+        '<td class="name"><span class="nm">' + esc(shortName(a.name)) + '</span>' + (S.view !== 'folder' ? '<span class="tag">' + esc(a.group) + '</span>' : '') +
+        (desc ? '<span class="desc">' + esc(desc) + '</span>' : '') + '</td>' +
+        '<td class="st">' + status + '</td>' + cell('today', '') + cell('week', 't7') + cell('total', 'tall') +
+        '<td class="t r">' + (a.starts ? a.starts : '<span class="zero">—</span>') + '</td>' +
+        '<td class="act">' + act + '</td><td class="perm">' + perm + '</td>' +
+        (draggable ? '<td class="mv"><button class="arrow" data-move="-1" data-key="' + esc(a.key) + '"' + (i === 0 ? ' disabled' : '') + ' title="up">▲</button><button class="arrow" data-move="1" data-key="' + esc(a.key) + '"' + (i === apps.length - 1 ? ' disabled' : '') + ' title="down">▼</button></td>' : '') +
+        '</tr>';
+    });
+    $('rows').innerHTML = html || '<tr><td colspan="12" style="color:#6e6e73;padding:18px 8px">nothing matches</td></tr>';
+    if (draggable) wireDrag();
+  }
+
+  function say(t) { $('msg').textContent = t || ''; }
+  function showErr(t) { var e = $('err'); if (t) { e.textContent = t; e.hidden = false; } else { e.hidden = true; } }
+
+  function take(state) {
+    if (!state) return;
+    if (state.error) { showErr(state.error); } else { showErr(null); }
+    if (state.apps && state.apps.length) S.apps = state.apps;
+    render();
+  }
+
+  function refresh(fresh) {
+    if (S.dragging) return;
+    var t0 = Date.now();
+    fetch('/api/state' + (fresh ? '?fresh=1' : '')).then(function (r) { return r.json(); }).then(function (st) {
+      take(st);
+      $('asked').textContent = 'the star answered in ' + (Date.now() - t0) + ' ms';
+    }).catch(function (e) { showErr('the monitor does not answer: ' + e); });
+  }
+
+  function post(url, body) {
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json(); });
+  }
+
+  function command(key, act) {
+    var a = S.apps.filter(function (x) { return x.key === key; })[0];
+    S.busy[key] = act === 'start' ? 'starting…' : 'stopping…'; render();
+    say((act === 'start' ? 'starting ' : 'stopping ') + (a ? shortName(a.name) : key) + '…');
+    post('/api/' + encodeURIComponent(key) + '/' + act).then(function (r) {
+      delete S.busy[key];
+      say(r.msg || '');
+      take(r.state);
+    }).catch(function (e) { delete S.busy[key]; say('failed: ' + e); render(); });
+  }
+
+  function permanent(key, on) {
+    post('/api/' + encodeURIComponent(key) + '/permanent', { on: on }).then(function (r) { say(r.msg || ''); take(r.state); })
+      .catch(function (e) { say('failed: ' + e); });
+  }
+
+  function sendOrder(keys) {
+    say('reordering…');
+    post('/api/order', { keys: keys }).then(function (r) { say(r.ok ? 'the star menu is in this order now' : r.msg); take(r.state); })
+      .catch(function (e) { say('failed: ' + e); });
+  }
+
+  function move(key, delta) {
+    var keys = S.apps.slice().sort(function (a, b) { return a.order - b.order; }).map(function (a) { return a.key; });
+    var i = keys.indexOf(key), j = i + delta;
+    if (i < 0 || j < 0 || j >= keys.length) return;
+    keys.splice(i, 1); keys.splice(j, 0, key);
+    keys.forEach(function (k, n) { var a = S.apps.filter(function (x) { return x.key === k; })[0]; if (a) a.order = n + 1; });
+    render();
+    sendOrder(keys);
+  }
+
+  function wireDrag() {
+    var rows = document.querySelectorAll('tr.row[draggable]');
+    rows.forEach(function (tr) {
+      tr.addEventListener('dragstart', function (e) {
+        S.dragging = tr.dataset.key; tr.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', tr.dataset.key); } catch (x) {}
+      });
+      tr.addEventListener('dragend', function () {
+        S.dragging = null; tr.classList.remove('dragging');
+        rows.forEach(function (r) { r.classList.remove('over-top', 'over-bottom'); });
+      });
+      tr.addEventListener('dragover', function (e) {
+        if (!S.dragging || S.dragging === tr.dataset.key) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+        var r = tr.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
+        tr.classList.toggle('over-top', before); tr.classList.toggle('over-bottom', !before);
+      });
+      tr.addEventListener('dragleave', function () { tr.classList.remove('over-top', 'over-bottom'); });
+      tr.addEventListener('drop', function (e) {
+        e.preventDefault();
+        var from = S.dragging; if (!from || from === tr.dataset.key) return;
+        var r = tr.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
+        var keys = S.apps.slice().sort(function (a, b) { return a.order - b.order; }).map(function (a) { return a.key; });
+        keys.splice(keys.indexOf(from), 1);
+        var at = keys.indexOf(tr.dataset.key) + (before ? 0 : 1);
+        keys.splice(at, 0, from);
+        keys.forEach(function (k, n) { var a = S.apps.filter(function (x) { return x.key === k; })[0]; if (a) a.order = n + 1; });
+        S.dragging = null; render(); sendOrder(keys);
+      });
+    });
+  }
+
+  document.body.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.view) return setView(b.dataset.view);
+    if (b.dataset.span) return setSpan(b.dataset.span);
+    if (b.dataset.act) return command(b.dataset.key, b.dataset.act);
+    if (b.dataset.perm !== undefined) return permanent(b.dataset.key, b.dataset.perm === '1');
+    if (b.dataset.move) return move(b.dataset.key, parseInt(b.dataset.move, 10));
+    if (b.id === 'alloff') {
+      if (!b.classList.contains('sure')) {
+        b.classList.add('sure'); b.textContent = 'SURE? ALL OFF';
+        clearTimeout(S.sure); S.sure = setTimeout(function () { b.classList.remove('sure'); b.textContent = 'ALL OFF'; }, 4000);
+        return;
+      }
+      b.classList.remove('sure'); b.textContent = 'ALL OFF'; say('stopping every app…');
+      post('/api/alloff').then(function (r) { say(r.ok ? 'all off' : r.msg); take(r.state); });
+    }
+  });
+  $('filter').addEventListener('input', function () { S.filter = this.value; render(); });
+  $('every').value = String(S.every);
+  $('every').addEventListener('change', function () {
+    S.every = parseInt(this.value, 10); try { localStorage.setItem('sm.every', this.value); } catch (e) {} schedule();
+  });
+  function schedule() {
+    clearInterval(S.timer); S.timer = null;
+    if (S.every > 0) S.timer = setInterval(function () { refresh(false); }, S.every * 1000);
+  }
+  refresh(true); schedule();
+})();
+</script></body></html>
+"""
+
+
+# ---------------------------------------------------------------- main
+def main(argv):
+    if argv[1:] == ["open"]:
+        subprocess.call(["open", "-a", "Google Chrome", "http://127.0.0.1:%d" % PORT])
+        return 0
+    os.makedirs(STATE_DIR, exist_ok=True)
+    app.run(host="127.0.0.1", port=PORT, threaded=True, debug=False, use_reloader=False)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
