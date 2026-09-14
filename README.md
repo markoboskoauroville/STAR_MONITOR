@@ -20,15 +20,17 @@ which doesn't stay: permanent application and non-permanent one."
   the span and the refresh rate are remembered in the browser.
 - **Permanent and for now.** A permanent app is started at every load of the star, ticked or not when
   Hammerspoon quit. An app that is for now runs until it is stopped or Hammerspoon quits, and stays off
-  after a restart. The set is `~/.config/star-permanent.json`. An always-on app (the Dock Switcher, the
-  menu bar, the Speechify splash closer) says ALWAYS ON and cannot be changed. Until 14.9.2026 the star
+  after a restart. The set is `~/.config/star-permanent.json`. There is no "always on" any more (Marko,
+  14.9.2026, 18:20: "we don't need that, now we have the permanent tag"): the Dock Switcher, the menu bar key,
+  the Speechify splash closer and Ableton Assistant A1 are permanent like any other app, and can be stopped or
+  made FOR NOW like any other. Until 14.9.2026 the star
   brought back whatever was ticked when it quit; the first time the permanent file is missing it is filled
   from those ticks, so nothing changed by itself on the day this arrived.
 - **The time an app runs** is counted by the star itself, not by this page: once a minute, and at every
   toggle, the seconds since the last look go to today's line of every app that is on, in
   `~/.config/star-time.json`. A gap longer than three minutes (the Mac slept) counts for nobody. So the
   ledger grows whether or not this page is open.
-- **ALL OFF** asks once ("SURE? ALL OFF") and then stops every app that is not always on, the star's own All off.
+- **ALL OFF** asks once ("SURE? ALL OFF") and then stops every app, the star's own All off.
 
 ## The shape
 

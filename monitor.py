@@ -20,8 +20,8 @@ and it reads the time ledger the star writes once a minute, ~/.config/star-time.
 
 PERMANENT AND FOR NOW: a permanent app is started at every load of the star; an app that is for
 now runs until it is stopped or Hammerspoon quits, and does not come back. The set is
-~/.config/star-permanent.json, written by the star at this page's word. An always-on app (the Dock
-Switcher, the menu bar) is permanent whatever anyone says.
+~/.config/star-permanent.json, written by the star at this page's word. There is no "always on"
+any more (Marko, 14.9.2026, 18:20): the permanent tag is the one rule, on every app alike.
 
     monitor.py                   the server, in the foreground (the star starts it detached)
     GET  /                       the page
@@ -30,7 +30,7 @@ Switcher, the menu bar) is permanent whatever anyone says.
     POST /api/<key>/stop         stop one app
     POST /api/<key>/permanent    { "on": true|false }   permanent, or for now
     POST /api/order              { "keys": [...] }      the new order of the star menu
-    POST /api/alloff             stop every app that is not always on
+    POST /api/alloff             stop every app
     GET  /health                 200 when up
     POST /quit                   stop the server
 
@@ -410,14 +410,11 @@ PAGE = r"""<!doctype html>
       var busy = S.busy[a.key];
       var act;
       if (busy) act = '<button class="b busy" disabled>' + esc(busy) + '</button>';
-      else if (a.running && a.always) act = '<button class="b always" disabled title="always on">ALWAYS</button>';
       else if (a.running) act = '<button class="b stop" data-act="stop" data-key="' + esc(a.key) + '">STOP</button>';
       else act = '<button class="b start" data-act="start" data-key="' + esc(a.key) + '">START</button>';
-      var perm = a.always
-        ? '<button class="pill permanent locked" disabled title="always on: it cannot be turned off">ALWAYS ON</button>'
-        : (a.permanent
+      var perm = a.permanent
           ? '<button class="pill permanent" data-perm="0" data-key="' + esc(a.key) + '" title="comes back at every start of the star; click to make it for now">PERMANENT</button>'
-          : '<button class="pill fornow" data-perm="1" data-key="' + esc(a.key) + '" title="does not come back after a restart; click to make it permanent">FOR NOW</button>');
+          : '<button class="pill fornow" data-perm="1" data-key="' + esc(a.key) + '" title="does not come back after a restart; click to make it permanent">FOR NOW</button>';
       var status = '<span class="dot"></span><span class="since">' + (a.running ? (a.since ? 'on for ' + fmt(a.since) : 'on') : (a.last_stop ? 'off' : 'off')) + '</span>';
       var cell = function (k, cls) {
         var v = a[k] || 0;
