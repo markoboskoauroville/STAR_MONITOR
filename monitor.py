@@ -211,6 +211,22 @@ def quit_server():
     return "bye"
 
 
+# THE ICON: the David star of the menu bar, two equilateral triangles at 60 % white on the page's dark ground
+# (Marko, 14.9.2026, 18:10: "all my pages should have icons; Star Monitor doesn't have any; make it David star")
+FAVICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="14" fill="#151517"/>'
+    '<g fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="3.6" stroke-linejoin="round">'
+    '<path d="M32 9 L52.8 45 L11.2 45 Z"/><path d="M32 55 L11.2 19 L52.8 19 Z"/></g></svg>'
+)
+
+
+@app.route("/favicon.svg")
+@app.route("/favicon.ico")
+def favicon():
+    return Response(FAVICON, mimetype="image/svg+xml")
+
+
 @app.route("/")
 def page():
     return Response(PAGE, mimetype="text/html")
@@ -220,6 +236,7 @@ def page():
 PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Star Monitor</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; background: #151517; color: #e8e8e8; font: 14px/1.4 -apple-system, "Helvetica Neue", sans-serif; }
