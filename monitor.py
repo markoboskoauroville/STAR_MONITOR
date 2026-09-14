@@ -78,7 +78,10 @@ def ask_star(lua, timeout=25):
     err = (r.stderr or "").strip()
     if r.returncode != 0:
         return False, out or err or ("hs exited %d" % r.returncode)
-    return True, out
+    # Hammerspoon prints its console lines first (hotkey: Disabled hotkey ⌃` … when an app stops, MEASURED
+    # 14.9.2026, 18:30) and the returned value last: the answer is the last line
+    lines = [ln for ln in out.split("\n") if ln.strip()]
+    return True, (lines[-1].strip() if lines else "")
 
 
 def star_json(lua):
