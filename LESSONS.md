@@ -20,3 +20,12 @@
 5. **A Lua error through `hs` comes back with exit code 65 and the message on stdout,** not stderr; a
    star without the new functions says "attempt to call a nil value (field 'state')". The page turns that
    into "restart Hammerspoon so the new star.lua loads" instead of a blank list.
+
+6. **An empty list was never the page's fault, and the page must not show one.** (15.9.2026) The list came
+   up empty because the star itself was dead: Hammerspoon's main thread sat in hs.task's exit handler,
+   reading to the end of a pipe that the shell which had started monitor.py still held (MANTRA_STAR
+   LESSONS 24; `sample` and `lsof` found it, killing the subshell freed the star). The `hs` timeout of
+   25 s under one lock then made every request wait half a minute for nothing. Two things changed: the
+   shell the star spawns drops its pipes first (spawn.lua), and the page keeps the star's last answer in
+   ~/.star_monitor/last-state.json and shows it, with the error above, when the star is silent.
+

@@ -105,7 +105,32 @@ def star_state(fresh=False):
     if not isinstance(st, dict) or not isinstance(st.get("apps"), list):
         return None, "the star has no STAR.state(): restart Hammerspoon so the new star.lua loads"
     CACHE["state"], CACHE["at"] = st, now
+    remember_state(st)
     return st, None
+
+
+# THE LIST IS NEVER EMPTY (Marko, 15.9.2026: "the list is empty. It should always show all my apps"). The
+# last answer of the star is kept on disk; when the star does not answer, the page shows that list with
+# the error above it, every row as it last was, instead of nothing.
+LAST_FILE = os.path.join(STATE_DIR, "last-state.json")
+
+
+def remember_state(st):
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(LAST_FILE, "w") as f:
+            json.dump(st, f)
+    except OSError:
+        pass
+
+
+def last_state():
+    try:
+        with open(LAST_FILE) as f:
+            st = json.load(f)
+        return st if isinstance(st, dict) and isinstance(st.get("apps"), list) else None
+    except (OSError, ValueError):
+        return None
 
 
 def star_command(key, what):
@@ -156,7 +181,10 @@ def full_state(fresh=False):
     st, err = star_state(fresh)
     now = time.time()
     if st is None:
-        return {"error": err, "apps": [], "time": now}
+        st = last_state()
+        if st is None:
+            return {"error": err, "apps": [], "time": now}
+        err = "the star did not answer (" + err + "); this is the list as it last was"
     ledger = read_ledger()
     apps = []
     for a in st["apps"]:
@@ -164,7 +192,7 @@ def full_state(fresh=False):
         a.update(times_of(ledger.get(a["key"]), a.get("running"), now))
         apps.append(a)
     return {"apps": apps, "folders": st.get("folders", True), "groups": st.get("groups", []),
-            "time": now, "error": None}
+            "time": now, "error": err}
 
 
 # ---------------------------------------------------------------- the routes

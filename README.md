@@ -61,3 +61,5 @@ says so in red and shows the last list it saw.
 - Nothing starts by itself: the star's tick (or the row "Start the Star Monitor…" at the bottom of the
   menu) starts this server; its submenu stops it. The ledger is the star's and runs without it.
 - No key, no network. Everything is on 127.0.0.1.
+
+**The list is never empty** (15.9.2026). The star's last answer is kept in `~/.star_monitor/last-state.json`; when the star does not answer, the page shows that list as it last was, with the error above it. The only time the page shows fewer than all the apps is the filter by name.
