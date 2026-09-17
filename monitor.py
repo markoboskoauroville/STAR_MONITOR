@@ -15,6 +15,7 @@ nothing; it asks the star through the `hs` command line, which answers in a tent
     STAR.state()                 every app: key, name, glyph, folder, order, running, permanent
     STAR.command(key, what)      start | stop | permanent | fornow
     STAR.order({keys})           the whole order after a drag
+    STAR.openOrder({keys})       OPEN NOW's order: the running apps as he arranged them
 and it reads the time ledger the star writes once a minute, ~/.config/star-time.json:
     { "<key>": { "days": { "2026-09-14": 3600 }, "starts": 3, "last_start": ts, "last_stop": ts } }
 
@@ -192,7 +193,7 @@ def full_state(fresh=False):
         a.update(times_of(ledger.get(a["key"]), a.get("running"), now))
         apps.append(a)
     return {"apps": apps, "folders": st.get("folders", True), "groups": st.get("groups", []),
-            "time": now, "error": err}
+            "open_order": st.get("open_order", []), "time": now, "error": err}
 
 
 # ---------------------------------------------------------------- the routes
@@ -227,6 +228,23 @@ def api_order():
     ok, res = ask_star(lua)
     CACHE["state"] = None
     return jsonify({"ok": ok, "msg": res if not ok else "ordered", "state": full_state(fresh=True)})
+
+
+# OPEN NOW (Marko, 17.9.2026: "before my order there should be open now and anything what is right now
+# open can be rearranged"). The page sends the running apps in the order he wants them; the star keeps the
+# list and builds its own first section from it.
+@app.route("/api/open-order", methods=["POST"])
+def api_open_order():
+    body = request.get_json(silent=True) or {}
+    keys = body.get("keys")
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        return jsonify({"ok": False, "msg": "keys must be a list of strings"}), 400
+    lua = "return hs.json.encode({STAR.openOrder(hs.json.decode(%s))})" % json.dumps(json.dumps(keys))
+    ok, res = ask_star(lua)
+    if not ok and "openOrder" in str(res):
+        res = "the star has no STAR.openOrder(): restart Hammerspoon so the new star.lua loads"
+    CACHE["state"] = None
+    return jsonify({"ok": ok, "msg": res if not ok else "open now is in this order", "state": full_state(fresh=True)})
 
 
 @app.route("/api/alloff", methods=["POST"])
@@ -345,11 +363,31 @@ PAGE = r"""<!doctype html>
   .msg { color: #8e8e93; font-size: 12px; min-height: 16px; margin: 0 0 8px; }
   .legend { color: #6e6e73; font-size: 12px; margin-top: 8px; }
   .legend b { color: #f7c948; font-weight: 500; }
+  /* OPEN NOW, the first section (17.9.2026) */
+  .open { border: 1px solid #2c2c2e; border-radius: 12px; background: #151517; padding: 12px 14px; margin: 0 0 14px; }
+  .open h2 { margin: 0 0 3px; font: 600 12px -apple-system, sans-serif; letter-spacing: .09em; color: #f7c948; text-transform: uppercase; }
+  .open .why { color: #6e6e73; font-size: 12px; margin: 0 0 10px; line-height: 1.45; }
+  .open ol { list-style: none; margin: 0; padding: 0; }
+  .open li { display: flex; align-items: center; gap: 10px; padding: 7px 9px; margin-bottom: 6px; border-radius: 8px;
+             background: #1b1b1e; border: 1px solid #232326; }
+  .open li:last-child { margin-bottom: 0; }
+  .open li.dragging { opacity: .35; }
+  .open li.over-top { box-shadow: inset 0 2px 0 #f7c948; }
+  .open li.over-bottom { box-shadow: inset 0 -2px 0 #f7c948; }
+  .open .h { cursor: grab; color: #55555a; letter-spacing: -2px; }
+  .open .n { color: #6e6e73; font-size: 12px; width: 16px; text-align: right; }
+  .open .gl { width: 18px; text-align: center; }
+  .open .nm { flex: 1; color: #f2f2f4; }
+  .open .gear { color: #55555a; font-size: 11px; }
+  .open .when { color: #6e6e73; font-size: 12px; }
+  .open select { background: #1f1f22; color: #ddd; border: 1px solid #2c2c2e; border-radius: 6px; padding: 2px 4px; font: 12px -apple-system, sans-serif; }
+  .open .none { color: #6e6e73; font-size: 12px; }
   @media (max-width: 760px) { td.name .desc { display: none; } th.t7, td.t7, th.tall, td.tall { display: none; } }
 </style></head><body>
 <h1><span class="star">✡</span>Star Monitor</h1>
 <div class="sub">Every app of the star: start, stop, put the important ones on top, and say which come back after a restart.</div>
 <div id="err" class="err" hidden></div>
+<div id="opennow" class="open"></div>
 <div class="bar">
   <div class="seg" id="views">
     <button data-view="order">MY ORDER</button>
@@ -380,7 +418,7 @@ PAGE = r"""<!doctype html>
 </div>
 <script>
 (function () {
-  var S = { apps: [], view: 'order', span: 'today', filter: '', busy: {}, dragging: null, timer: null, every: 5, sure: null };
+  var S = { apps: [], openOrder: [], view: 'order', span: 'today', filter: '', busy: {}, dragging: null, odragging: null, timer: null, every: 5, sure: null };
   try {
     S.view = localStorage.getItem('sm.view') || 'order';
     S.span = localStorage.getItem('sm.span') || 'today';
@@ -419,7 +457,97 @@ PAGE = r"""<!doctype html>
     return apps;
   }
 
+  // OPEN NOW: what is running, in his order, above everything else (Marko, 17.9.2026)
+  function openApps() {
+    var rank = {};
+    (S.openOrder || []).forEach(function (k, i) { rank[k] = i; });
+    return S.apps.filter(function (a) { return a.running; }).sort(function (a, b) {
+      var ra = rank[a.key] === undefined ? 10000 + a.order : rank[a.key];
+      var rb = rank[b.key] === undefined ? 10000 + b.order : rank[b.key];
+      return ra - rb;
+    });
+  }
+
+  function renderOpen() {
+    var on = openApps();
+    var h = '<h2>Open now</h2><div class="why">What is running, in the order you want it. The first section of the star menu \u2014 the settings of every running app, above the app list \u2014 follows this order, so whatever you put on top is the first thing under the star. Drag a row by its handle, use the arrows, or pick a place from the number. An app you have placed keeps that place while it is off.</div>';
+    if (!on.length) { $('opennow').innerHTML = h + '<div class="none">nothing is running</div>'; return; }
+    h += '<ol id="openlist">';
+    on.forEach(function (a, i) {
+      var opts = '';
+      for (var n = 1; n <= on.length; n++) opts += '<option value="' + n + '"' + (n === i + 1 ? ' selected' : '') + '>' + n + '</option>';
+      h += '<li draggable="true" data-key="' + esc(a.key) + '">' +
+        '<span class="h" title="drag to move">\u22ee\u22ee</span>' +
+        '<span class="n">' + (i + 1) + '</span>' +
+        '<span class="gl">' + esc(a.glyph || '') + '</span>' +
+        '<span class="nm">' + esc(shortName(a.name)) + (a.settings ? ' <span class="gear" title="has a settings submenu in the star">\u2699</span>' : '') + '</span>' +
+        '<span class="when">' + (a.since ? 'on for ' + fmt(a.since) : 'on') + '</span>' +
+        '<button class="arrow" data-omove="-1" data-key="' + esc(a.key) + '"' + (i === 0 ? ' disabled' : '') + ' title="up">\u25b2</button>' +
+        '<button class="arrow" data-omove="1" data-key="' + esc(a.key) + '"' + (i === on.length - 1 ? ' disabled' : '') + ' title="down">\u25bc</button>' +
+        '<select class="opos" data-key="' + esc(a.key) + '" title="move to this place">' + opts + '</select>' +
+        '</li>';
+    });
+    $('opennow').innerHTML = h + '</ol>';
+    wireOpenDrag();
+  }
+
+  function sendOpenOrder(keys) {
+    S.openOrder = keys.concat((S.openOrder || []).filter(function (k) { return keys.indexOf(k) < 0; }));
+    renderOpen();
+    say('reordering open now\u2026');
+    post('/api/open-order', { keys: keys })
+      .then(function (r) { say(r.ok ? 'open now is in this order, and so is the top of the star menu' : r.msg); take(r.state); })
+      .catch(function (e) { say('failed: ' + e); });
+  }
+
+  function placeOpen(key, pos) {
+    var keys = openApps().map(function (a) { return a.key; });
+    var i = keys.indexOf(key), j = Math.max(0, Math.min(keys.length - 1, pos - 1));
+    if (i < 0 || i === j) return;
+    keys.splice(i, 1); keys.splice(j, 0, key);
+    sendOpenOrder(keys);
+  }
+
+  function moveOpen(key, delta) {
+    var keys = openApps().map(function (a) { return a.key; });
+    var i = keys.indexOf(key);
+    if (i < 0) return;
+    placeOpen(key, i + 1 + delta);
+  }
+
+  function wireOpenDrag() {
+    var items = document.querySelectorAll('#openlist li[draggable]');
+    items.forEach(function (li) {
+      li.addEventListener('dragstart', function (e) {
+        S.odragging = li.dataset.key; li.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', li.dataset.key); } catch (x) {}
+      });
+      li.addEventListener('dragend', function () {
+        S.odragging = null; li.classList.remove('dragging');
+        items.forEach(function (o) { o.classList.remove('over-top', 'over-bottom'); });
+      });
+      li.addEventListener('dragover', function (e) {
+        if (!S.odragging || S.odragging === li.dataset.key) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+        var r = li.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
+        li.classList.toggle('over-top', before); li.classList.toggle('over-bottom', !before);
+      });
+      li.addEventListener('dragleave', function () { li.classList.remove('over-top', 'over-bottom'); });
+      li.addEventListener('drop', function (e) {
+        e.preventDefault();
+        var from = S.odragging; if (!from || from === li.dataset.key) return;
+        var r = li.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
+        var keys = openApps().map(function (a) { return a.key; });
+        keys.splice(keys.indexOf(from), 1);
+        keys.splice(keys.indexOf(li.dataset.key) + (before ? 0 : 1), 0, from);
+        S.odragging = null;
+        sendOpenOrder(keys);
+      });
+    });
+  }
+
   function render() {
+    renderOpen();
     document.querySelectorAll('#views button').forEach(function (b) { b.classList.toggle('on', b.dataset.view === S.view); });
     document.querySelectorAll('#spans button').forEach(function (b) { b.classList.toggle('on', b.dataset.span === S.span); });
     var apps = sorted();
@@ -475,11 +603,12 @@ PAGE = r"""<!doctype html>
     if (!state) return;
     if (state.error) { showErr(state.error); } else { showErr(null); }
     if (state.apps && state.apps.length) S.apps = state.apps;
+    if (state.open_order) S.openOrder = state.open_order;
     render();
   }
 
   function refresh(fresh) {
-    if (S.dragging) return;
+    if (S.dragging || S.odragging) return;
     var t0 = Date.now();
     fetch('/api/state' + (fresh ? '?fresh=1' : '')).then(function (r) { return r.json(); }).then(function (st) {
       take(st);
@@ -563,6 +692,7 @@ PAGE = r"""<!doctype html>
     if (b.dataset.act) return command(b.dataset.key, b.dataset.act);
     if (b.dataset.perm !== undefined) return permanent(b.dataset.key, b.dataset.perm === '1');
     if (b.dataset.move) return move(b.dataset.key, parseInt(b.dataset.move, 10));
+    if (b.dataset.omove) return moveOpen(b.dataset.key, parseInt(b.dataset.omove, 10));
     if (b.id === 'alloff') {
       if (!b.classList.contains('sure')) {
         b.classList.add('sure'); b.textContent = 'SURE? ALL OFF';
@@ -572,6 +702,10 @@ PAGE = r"""<!doctype html>
       b.classList.remove('sure'); b.textContent = 'ALL OFF'; say('stopping every app…');
       post('/api/alloff').then(function (r) { say(r.ok ? 'all off' : r.msg); take(r.state); });
     }
+  });
+  document.body.addEventListener('change', function (e) {
+    var sel = e.target.closest('select.opos'); if (!sel) return;
+    placeOpen(sel.dataset.key, parseInt(sel.value, 10));
   });
   $('filter').addEventListener('input', function () { S.filter = this.value; render(); });
   $('every').value = String(S.every);
