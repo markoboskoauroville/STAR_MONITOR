@@ -11,6 +11,13 @@ which doesn't stay: permanent application and non-permanent one."
 
 ## What it does
 
+- **OPEN NOW, the first section** (Marko, 17.9.2026: "before my order there should be open now and
+  anything what is right now open can be rearranged"): above everything else, what is running right now,
+  in an order of his own — drag a row by its handle, the arrows, or the number picks a place. The star
+  menu's own first section, the settings submenu of every running app above the app list, is built in
+  that same order, so whatever he puts on top is the first thing under the star. An app he has placed
+  keeps its place while it is off and is back there the moment it starts again; one he has never placed
+  sorts after the placed ones, so a new app appears at the end and nothing jumps by itself.
 - **Every app, one row:** number in the star menu, glyph, name, folder, a green dot and "on for 1h 12m"
   while it runs, the time it ran today, in the last 7 days and all time, how many times it was started,
   START or STOP, and PERMANENT or FOR NOW.
@@ -36,11 +43,13 @@ which doesn't stay: permanent application and non-permanent one."
 
     monitor.py         the server (Flask, port 8851) and the page, one file
     MANTRA_STAR/apps/monitor.lua      the switch in the star: the tick starts this server and opens the page
-    MANTRA_STAR/star.lua              STAR.state(), STAR.command(key, what), STAR.order(keys): the API this page calls,
+    MANTRA_STAR/star.lua              STAR.state(), STAR.command(key, what), STAR.order(keys),
+                                      STAR.openOrder(keys): the API this page calls,
                                       the permanent set, the time ledger
     ~/.config/star-permanent.json     { "permanent": ["dock", "a1", ...] }
     ~/.config/star-time.json          { "<key>": { "days": { "2026-09-14": 3600 }, "starts": 3, "last_start": ts, "last_stop": ts } }
     ~/.config/star-order.json         the order of the menu (reorder.lua, shared with the star's own Reorder page)
+    ~/.config/star-open-order.json    OPEN NOW's order: { "open": ["a1", "monitor", …] }, his priority for what is running
     ~/.star_monitor/monitor.log       the server's log
 
 The server owns nothing. It asks the star through the `hs` command line (`hs -c 'return
@@ -53,6 +62,7 @@ says so in red and shows the last list it saw.
     POST /api/<key>/start        POST /api/<key>/stop
     POST /api/<key>/permanent    { "on": true|false }
     POST /api/order              { "keys": [...] }
+    POST /api/open-order         { "keys": [...] }  OPEN NOW's order: the running apps as he arranged them
     POST /api/alloff
     GET  /health                 POST /quit
 
