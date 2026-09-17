@@ -53,7 +53,15 @@ from flask import Flask, Response, jsonify, request
 
 HOME = os.path.expanduser("~")
 HS = "/opt/homebrew/bin/hs"
-PORT = 8851
+# the port is claimed, not assumed (MANTRA_PORTS, 17.9.2026): 8851 when it is free, the next free one
+# when it is not, written to ~/.config/mantra-ports.json either way so a client can ask
+try:
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.expanduser('~/.local/lib/mantra'))
+    import ports as _ports
+    PORT = _ports.claim('monitor', 8851)
+except Exception:                                   # noqa: BLE001
+    PORT = 8851
 TIME_FILE = os.path.join(HOME, ".config", "star-time.json")
 STATE_DIR = os.path.join(HOME, ".star_monitor")
 
