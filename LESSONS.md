@@ -1,6 +1,6 @@
 # LESSONS — Star Monitor
 
-1. **The star is the only truth; the page owns nothing.** Every START, STOP, reorder and PERMANENT is
+1. **The star is the only truth; the page owns nothing.** Every START, STOP and reorder is
    the star's own function, called through the `hs` command line, so the page and the menu can never
    disagree. Measured 14.9.2026: `hs -c` with all 26 `running()` checks answers in 93 ms; a trivial
    line in 7 ms. One lock around the call: the star is one thread.
@@ -13,9 +13,13 @@
    hours since the last look. Anything over three minutes is dropped, so a night of sleep does not become
    a night of use.
 
-4. **Permanent replaces "remembered", with a migration.** The old rule brought back whatever was ticked;
-   the new file is filled from that list the first time it is missing, so the day the rule changed nothing
-   changed by itself. An always-on or on-by-default app is permanent whatever the file says.
+4. **"Remembered" was replaced by a tag on 14.9.2026, and the tag was taken out again on 20.9.2026.**
+   For six days what came back was `~/.config/star-permanent.json`, set on this page, and what he ticked
+   was only a record — so ticking an app on and restarting lost it. Marko: "I am choosing what is
+   persistent. What I open stays open between sessions. What I close stays closed between sessions." A
+   second list of what should be running is a second truth, and someone has to keep it true; his own open
+   and close already say everything the tag said. The page keeps the column as a reading, NEXT RUN, so the
+   rule is visible without being a third thing to set.
 
 5. **A Lua error through `hs` comes back with exit code 65 and the message on stdout,** not stderr; a
    star without the new functions says "attempt to call a nil value (field 'state')". The page turns that

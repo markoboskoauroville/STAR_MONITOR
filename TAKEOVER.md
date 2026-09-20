@@ -10,5 +10,6 @@
    page opens at http://127.0.0.1:8851.
 5. Without the star: `python3 monitor.py` in the foreground, `python3 monitor.py open` for the page,
    `curl -X POST http://127.0.0.1:8851/quit` to stop it.
-6. State is the star's: `~/.config/star-permanent.json`, `~/.config/star-time.json`,
+6. State is the star's: `~/.config/star-running.json` (what is open, so what comes back; the permanent
+   file was taken out 20.9.2026), `~/.config/star-time.json`,
    `~/.config/star-order.json`. The log is `~/.star_monitor/monitor.log`. Nothing generated is in the repository.

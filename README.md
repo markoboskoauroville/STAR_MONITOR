@@ -9,6 +9,10 @@ sorting order give me top, by alphabet, by application, so it's easy to manage a
 list is growing rapidly. Especially managing for the next run: what stays, what is just when I restart,
 which doesn't stay: permanent application and non-permanent one."
 
+And 20.9.2026, the answer to that last sentence: "we are removing all applications which are persistent.
+I am choosing what is persistent. What I open stays open between sessions. What I close stays closed
+between sessions." The PERMANENT / FOR NOW tag is gone; opening an app is what makes it come back.
+
 ## What it does
 
 - **OPEN NOW, the first section** (Marko, 17.9.2026: "before my order there should be open now and
@@ -20,19 +24,20 @@ which doesn't stay: permanent application and non-permanent one."
   sorts after the placed ones, so a new app appears at the end and nothing jumps by itself.
 - **Every app, one row:** number in the star menu, glyph, name, folder, a green dot and "on for 1h 12m"
   while it runs, the time it ran today, in the last 7 days and all time, how many times it was started,
-  START or STOP, and PERMANENT or FOR NOW.
+  START or STOP, and NEXT RUN: COMES BACK if it is open, STAYS OFF if it is not.
 - **Five views:** MY ORDER (the star menu's order; drag a row by its handle, or the arrows, and the menu
   changes at once), ALPHABET, MOST RUN (TODAY, 7 DAYS or ALL TIME picks the column; a bar under the time),
   BY FOLDER (the star's five folders), RUNNING FIRST. A filter box narrows the list as he types. The view,
   the span and the refresh rate are remembered in the browser.
-- **Permanent and for now.** A permanent app is started at every load of the star, ticked or not when
-  Hammerspoon quit. An app that is for now runs until it is stopped or Hammerspoon quits, and stays off
-  after a restart. The set is `~/.config/star-permanent.json`. There is no "always on" any more (Marko,
-  14.9.2026, 18:20: "we don't need that, now we have the permanent tag"): the Dock Switcher, the menu bar key,
-  the Speechify splash closer and Ableton Assistant A1 are permanent like any other app, and can be stopped or
-  made FOR NOW like any other. Until 14.9.2026 the star
-  brought back whatever was ticked when it quit; the first time the permanent file is missing it is filled
-  from those ticks, so nothing changed by itself on the day this arrived.
+- **What comes back is what is open** (20.9.2026). The apps that are on when Hammerspoon stops are the
+  apps that start with it again; the ones he closed stay closed. **NEXT RUN** is that reading, not a
+  switch: COMES BACK while an app is on, STAYS OFF while it is not, so START and STOP here are also the
+  decision about the next session. The star writes the set to `~/.config/star-running.json` at every
+  START, STOP and tick, once a minute, and once more as Hammerspoon quits. The PERMANENT / FOR NOW
+  button of 14.9.2026 and its `~/.config/star-permanent.json` are gone, and there is no "always on"
+  either (Marko, 14.9.2026, 18:20): the Dock Switcher, the menu bar key, the Speechify splash closer and
+  Ableton Assistant A1 come back only because they are open, and STOP ends that like any other app. An
+  app whose start fails at the next load keeps its place in the file and is tried again the time after.
 - **The time an app runs** is counted by the star itself, not by this page: once a minute, and at every
   toggle, the seconds since the last look go to today's line of every app that is on, in
   `~/.config/star-time.json`. A gap longer than three minutes (the Mac slept) counts for nobody. So the
@@ -45,22 +50,21 @@ which doesn't stay: permanent application and non-permanent one."
     MANTRA_STAR/apps/monitor.lua      the switch in the star: the tick starts this server and opens the page
     MANTRA_STAR/star.lua              STAR.state(), STAR.command(key, what), STAR.order(keys),
                                       STAR.openOrder(keys): the API this page calls,
-                                      the permanent set, the time ledger
-    ~/.config/star-permanent.json     { "permanent": ["dock", "a1", ...] }
+                                      what is open, the time ledger
+    ~/.config/star-running.json       ["dock", "a1", ...] — what is open, so what comes back
     ~/.config/star-time.json          { "<key>": { "days": { "2026-09-14": 3600 }, "starts": 3, "last_start": ts, "last_stop": ts } }
     ~/.config/star-order.json         the order of the menu (reorder.lua, shared with the star's own Reorder page)
     ~/.config/star-open-order.json    OPEN NOW's order: { "open": ["a1", "monitor", …] }, his priority for what is running
     ~/.star_monitor/monitor.log       the server's log
 
 The server owns nothing. It asks the star through the `hs` command line (`hs -c 'return
-hs.json.encode(STAR.state())'`, a tenth of a second for all apps), and every START, STOP, PERMANENT and
+hs.json.encode(STAR.state())'`, a tenth of a second for all apps), and every START, STOP and
 reorder is the star's own function, the same one the tick in the menu calls. If Hammerspoon is down the page
 says so in red and shows the last list it saw.
 
     GET  /                       the page
     GET  /api/state              the apps with today / 7 days / all time / running since
     POST /api/<key>/start        POST /api/<key>/stop
-    POST /api/<key>/permanent    { "on": true|false }
     POST /api/order              { "keys": [...] }
     POST /api/open-order         { "keys": [...] }  OPEN NOW's order: the running apps as he arranged them
     POST /api/alloff

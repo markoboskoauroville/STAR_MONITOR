@@ -12,24 +12,25 @@ non-permanent one."
 
 WHERE THE TRUTH IS: the star itself (MANTRA_STAR/star.lua, inside Hammerspoon). This server owns
 nothing; it asks the star through the `hs` command line, which answers in a tenth of a second:
-    STAR.state()                 every app: key, name, glyph, folder, order, running, permanent
-    STAR.command(key, what)      start | stop | permanent | fornow
+    STAR.state()                 every app: key, name, glyph, folder, order, running, wanted
+    STAR.command(key, what)      start | stop
     STAR.order({keys})           the whole order after a drag
     STAR.openOrder({keys})       OPEN NOW's order: the running apps as he arranged them
 and it reads the time ledger the star writes once a minute, ~/.config/star-time.json:
     { "<key>": { "days": { "2026-09-14": 3600 }, "starts": 3, "last_start": ts, "last_stop": ts } }
 
-PERMANENT AND FOR NOW: a permanent app is started at every load of the star; an app that is for
-now runs until it is stopped or Hammerspoon quits, and does not come back. The set is
-~/.config/star-permanent.json, written by the star at this page's word. There is no "always on"
-any more (Marko, 14.9.2026, 18:20): the permanent tag is the one rule, on every app alike.
+WHAT COMES BACK. Marko, 20.9.2026: "we are removing all applications which are persistent. I am
+choosing what is persistent. What I open stays open between sessions. What I close stays closed
+between sessions." So the permanent tag of 14.9.2026 is gone, and with it ~/.config/star-permanent.json
+and this page's PERMANENT / FOR NOW button. What comes back at the next start of the star is what is
+open now: START here or a tick in the star menu is what makes an app persistent, STOP is what ends it.
+The NEXT RUN column says which it is for each app; it is a reading, not a switch.
 
     monitor.py                   the server, in the foreground (the star starts it detached)
     GET  /                       the page
     GET  /api/state              the apps, with today / 7 days / all time / running since
     POST /api/<key>/start        start one app (the star's own start(), a few seconds for a server)
     POST /api/<key>/stop         stop one app
-    POST /api/<key>/permanent    { "on": true|false }   permanent, or for now
     POST /api/order              { "keys": [...] }      the new order of the star menu
     POST /api/alloff             stop every app
     GET  /health                 200 when up
@@ -217,10 +218,10 @@ def api_state():
 
 @app.route("/api/<key>/<what>", methods=["POST"])
 def api_command(key, what):
-    if what == "permanent":
-        body = request.get_json(silent=True) or {}
-        what = "permanent" if body.get("on", True) else "fornow"
-    if what not in ("start", "stop", "permanent", "fornow"):
+    if what in ("permanent", "fornow"):     # 20.9.2026: the tag is gone, an old tab is told so
+        return jsonify({"ok": False, "msg": "there is no permanent any more: what is open when "
+                                            "Hammerspoon stops is what opens again"}), 410
+    if what not in ("start", "stop"):
         return jsonify({"ok": False, "msg": "unknown command"}), 400
     ok, msg = star_command(key, what)
     return jsonify({"ok": ok, "msg": msg, "state": full_state(fresh=True)})
@@ -357,11 +358,9 @@ PAGE = r"""<!doctype html>
   button.b.stop:hover { background: #3a2321; }
   button.b.busy { color: #8e8e93; border-color: #3a3a3c; cursor: default; }
   button.b.always { color: #6e6e73; border-color: #2c2c2e; cursor: default; }
-  button.pill { border: 1px solid #3a3a3c; background: #1f1f22; color: #8e8e93; border-radius: 12px; padding: 3px 10px; font: 11.5px -apple-system, sans-serif; cursor: pointer; min-width: 96px; letter-spacing: .4px; }
-  button.pill.permanent { color: #f7c948; border-color: #6b5a20; background: #2a2510; }
-  button.pill.permanent:hover { background: #3a3315; }
-  button.pill.fornow:hover { color: #fff; background: #26262a; }
-  button.pill.locked { cursor: default; opacity: .8; }
+  span.pill { display: inline-block; border: 1px solid #3a3a3c; background: #1f1f22; color: #8e8e93; border-radius: 12px; padding: 3px 10px; font: 11.5px -apple-system, sans-serif; min-width: 96px; letter-spacing: .4px; text-align: center; }
+  span.pill.back { color: #4cd964; border-color: #2e5c3a; background: #142418; }
+  span.pill.off { color: #6e6e73; border-color: #2c2c2e; }
   button.arrow { border: 0; background: none; color: #6e6e73; cursor: pointer; font-size: 12px; padding: 2px 3px; }
   button.arrow:hover { color: #fff; }
   button.arrow[disabled] { opacity: .2; cursor: default; }
@@ -419,7 +418,7 @@ PAGE = r"""<!doctype html>
   <thead><tr id="thead"></tr></thead>
   <tbody id="rows"></tbody>
 </table>
-<div class="legend"><b>PERMANENT</b> comes back at every start of the star. <span style="color:#b5b5ba">FOR NOW</span> runs until you stop it or Hammerspoon quits, and stays off after a restart. The star adds a minute of running time to every app that is on, once a minute; a sleeping Mac counts nothing.</div>
+<div class="legend">What you open stays open between sessions, what you close stays closed: the apps that are on when Hammerspoon stops are the apps that start with it again, and <b>NEXT RUN</b> reads that back. There is no permanent tag any more (20.9.2026) - START and STOP are the whole of it. The star adds a minute of running time to every app that is on, once a minute; a sleeping Mac counts nothing.</div>
 <div class="foot">
   <span>refresh every <select id="every"><option value="2">2 s</option><option value="5" selected>5 s</option><option value="10">10 s</option><option value="30">30 s</option><option value="0">never</option></select></span>
   <span id="asked"></span>
@@ -579,9 +578,10 @@ PAGE = r"""<!doctype html>
       if (busy) act = '<button class="b busy" disabled>' + esc(busy) + '</button>';
       else if (a.running) act = '<button class="b stop" data-act="stop" data-key="' + esc(a.key) + '">STOP</button>';
       else act = '<button class="b start" data-act="start" data-key="' + esc(a.key) + '">START</button>';
-      var perm = a.permanent
-          ? '<button class="pill permanent" data-perm="0" data-key="' + esc(a.key) + '" title="comes back at every start of the star; click to make it for now">PERMANENT</button>'
-          : '<button class="pill fornow" data-perm="1" data-key="' + esc(a.key) + '" title="does not come back after a restart; click to make it permanent">FOR NOW</button>';
+      // 20.9.2026: no tag to set any more. The app is open, so it opens again; it is closed, so it stays closed.
+      var perm = a.wanted
+          ? '<span class="pill back" title="it is open, so it opens again at the next start of the star">COMES BACK</span>'
+          : '<span class="pill off" title="it is closed, so it stays closed after a restart">STAYS OFF</span>';
       var status = '<span class="dot"></span><span class="since">' + (a.running ? (a.since ? 'on for ' + fmt(a.since) : 'on') : (a.last_stop ? 'off' : 'off')) + '</span>';
       var cell = function (k, cls) {
         var v = a[k] || 0;
@@ -640,11 +640,6 @@ PAGE = r"""<!doctype html>
     }).catch(function (e) { delete S.busy[key]; say('failed: ' + e); render(); });
   }
 
-  function permanent(key, on) {
-    post('/api/' + encodeURIComponent(key) + '/permanent', { on: on }).then(function (r) { say(r.msg || ''); take(r.state); })
-      .catch(function (e) { say('failed: ' + e); });
-  }
-
   function sendOrder(keys) {
     say('reordering…');
     post('/api/order', { keys: keys }).then(function (r) { say(r.ok ? 'the star menu is in this order now' : r.msg); take(r.state); })
@@ -698,7 +693,6 @@ PAGE = r"""<!doctype html>
     if (b.dataset.view) return setView(b.dataset.view);
     if (b.dataset.span) return setSpan(b.dataset.span);
     if (b.dataset.act) return command(b.dataset.key, b.dataset.act);
-    if (b.dataset.perm !== undefined) return permanent(b.dataset.key, b.dataset.perm === '1');
     if (b.dataset.move) return move(b.dataset.key, parseInt(b.dataset.move, 10));
     if (b.dataset.omove) return moveOpen(b.dataset.key, parseInt(b.dataset.omove, 10));
     if (b.id === 'alloff') {
