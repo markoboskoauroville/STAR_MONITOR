@@ -46,29 +46,33 @@ between sessions." The PERMANENT / FOR NOW tag is gone; opening an app is what m
 
 ## The shape
 
-    monitor.py         the server (Flask, port 8851) and the page, one file
-    MANTRA_STAR/apps/monitor.lua      the switch in the star: the tick starts this server and opens the page
-    MANTRA_STAR/star.lua              STAR.state(), STAR.command(key, what), STAR.order(keys),
-                                      STAR.openOrder(keys): the API this page calls,
-                                      what is open, the time ledger
-    ~/.config/star-running.json       ["dock", "a1", ...] — what is open, so what comes back
-    ~/.config/star-time.json          { "<key>": { "days": { "2026-09-14": 3600 }, "starts": 3, "last_start": ts, "last_stop": ts } }
-    ~/.config/star-order.json         the order of the menu (reorder.lua, shared with the star's own Reorder page)
-    ~/.config/star-open-order.json    OPEN NOW's order: { "open": ["a1", "monitor", …] }, his priority for what is running
-    ~/.star_monitor/monitor.log       the server's log
+```
+monitor.py         the server (Flask, port 8851) and the page, one file
+MANTRA_STAR/apps/monitor.lua      the switch in the star: the tick starts this server and opens the page
+MANTRA_STAR/star.lua              STAR.state(), STAR.command(key, what), STAR.order(keys),
+                                  STAR.openOrder(keys): the API this page calls,
+                                  what is open, the time ledger
+~/.config/star-running.json       ["dock", "a1", ...] — what is open, so what comes back
+~/.config/star-time.json          { "<key>": { "days": { "2026-09-14": 3600 }, "starts": 3, "last_start": ts, "last_stop": ts } }
+~/.config/star-order.json         the order of the menu (reorder.lua, shared with the star's own Reorder page)
+~/.config/star-open-order.json    OPEN NOW's order: { "open": ["a1", "monitor", …] }, his priority for what is running
+~/.star_monitor/monitor.log       the server's log
+```
 
 The server owns nothing. It asks the star through the `hs` command line (`hs -c 'return
 hs.json.encode(STAR.state())'`, a tenth of a second for all apps), and every START, STOP and
 reorder is the star's own function, the same one the tick in the menu calls. If Hammerspoon is down the page
 says so in red and shows the last list it saw.
 
-    GET  /                       the page
-    GET  /api/state              the apps with today / 7 days / all time / running since
-    POST /api/<key>/start        POST /api/<key>/stop
-    POST /api/order              { "keys": [...] }
-    POST /api/open-order         { "keys": [...] }  OPEN NOW's order: the running apps as he arranged them
-    POST /api/alloff
-    GET  /health                 POST /quit
+```
+GET  /                       the page
+GET  /api/state              the apps with today / 7 days / all time / running since
+POST /api/<key>/start        POST /api/<key>/stop
+POST /api/order              { "keys": [...] }
+POST /api/open-order         { "keys": [...] }  OPEN NOW's order: the running apps as he arranged them
+POST /api/alloff
+GET  /health                 POST /quit
+```
 
 ## The rules it keeps
 
