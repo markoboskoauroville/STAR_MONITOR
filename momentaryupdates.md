@@ -9,4 +9,4 @@ Every request from Marko, word for word, before any code. Each item has a Status
 Marko 13.10.2026: convert to Swift (no more Lua / web pages). This page becomes a native window, "Star Monitor (Mantra).app"
 in /Applications; the Python stays in the repo until Marko confirms the Swift app.
 
-**Status:** saved; not started.
+**Status:** built v1 13.10.2026: /Applications/Star Monitor (Mantra).app, signed Mantra Apps. Rows from ~/.config/star-rows.json in the star's order; START / STOP (Swift apps directly, Lua apps through STAR.command); OPEN NOW with ▲▼ (STAR.openOrder); MY ORDER ▲▼ (STAR.order); ALPHABET, MOST RUN (TODAY / 7 DAYS / ALL TIME), BY FOLDER, RUNNING FIRST; filter; ALL OFF; NEXT RUN. Checked by screenshot: 28 rows, 13 on, the ledger's times. monitor.py kept until Marko confirms.
