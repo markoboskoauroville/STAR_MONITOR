@@ -13,6 +13,12 @@ And 20.9.2026, the answer to that last sentence: "we are removing all applicatio
 I am choosing what is persistent. What I open stays open between sessions. What I close stays closed
 between sessions." The PERMANENT / FOR NOW tag is gone; opening an app is what makes it come back.
 
+## ON / OFF at the top (v2, 19.10.2026)
+
+The first row of the window is **STAR MONITOR ON OFF** with the version (Marko, 19.10.2026: "In the top of every
+user interface, there will now be an on/off switch"). ON is lit while it runs; OFF quits the app. Closing the window
+leaves it on, and the star's open (a reopen) brings the window back.
+
 ## What it does
 
 - **OPEN NOW, the first section** (Marko, 17.9.2026: "before my order there should be open now and

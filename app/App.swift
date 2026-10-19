@@ -13,7 +13,7 @@
 import SwiftUI
 import AppKit
 
-let VERSION = 1
+let VERSION = 2
 let RELEASES = "https://github.com/markoboskoauroville/STAR_MONITOR/releases/latest"
 let HOME = NSHomeDirectory()
 let CONF = HOME + "/.config"
@@ -329,8 +329,17 @@ struct MonitorView: View {
     var body: some View {
         let sp = Span(rawValue: span) ?? .week
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            // the first row is ON / OFF (Marko, 19.10.2026: "In the top of every user interface, there will now be an
+            // on/off switch"; MANTRA_MANIFEST swift-apps.md). Running is ON; OFF quits the window and its timer.
+            HStack(spacing: 4) {
                 Text("STAR MONITOR").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(GREY)
+                Word(text: "ON", on: true) {}
+                Word(text: "OFF", on: false) { NSApp.terminate(nil) }
+                Spacer()
+                Text("v\(VERSION)").font(.system(size: 11, design: .monospaced)).foregroundColor(GREY)
+                    .onTapGesture { NSWorkspace.shared.open(URL(string: RELEASES)!) }
+            }
+            HStack {
                 Text("\(m.on.values.filter { $0 }.count) of \(m.rows.count) on").font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundColor(AMBER)
                 Spacer()
                 if !m.hsUp { Text("Hammerspoon is off: the Lua apps cannot start").font(.system(size: 11, design: .monospaced)).foregroundColor(AMBER) }
@@ -370,8 +379,6 @@ struct MonitorView: View {
             HStack {
                 Text(m.said).font(.system(size: 11, design: .monospaced)).foregroundColor(GREY).lineLimit(1)
                 Spacer()
-                Text("v\(VERSION)").font(.system(size: 11, design: .monospaced)).foregroundColor(GREY)
-                    .onTapGesture { NSWorkspace.shared.open(URL(string: RELEASES)!) }
             }
         }
         .padding(20).frame(minWidth: 900, minHeight: 560).background(INK).preferredColorScheme(.dark)
@@ -379,7 +386,12 @@ struct MonitorView: View {
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    // closing the window leaves it ON; the star's open (a reopen) brings the window back (Marko, 19.10.2026)
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
+    func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, let w = s.windows.first(where: { $0.canBecomeMain }) { w.makeKeyAndOrderFront(nil); s.activate(ignoringOtherApps: true); return false }
+        return true   // no window left: SwiftUI's WindowGroup makes a new one
+    }
 }
 
 @main struct StarMonitor: App {

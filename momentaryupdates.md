@@ -17,4 +17,4 @@ in /Applications; the Python stays in the repo until Marko confirms the Swift ap
 
 The first row of the main window is ON / OFF; OFF stops the engine and quits; closing the window leaves the app on; the star only opens it.
 
-**Status:** saved before any code.
+**Status:** v2 built 19.10.2026: STAR MONITOR ON OFF is the first row with v2 (moved up from the bottom); OFF = NSApp.terminate; closing the window no longer quits (applicationShouldTerminateAfterLastWindowClosed false), the reopen shows the window or SwiftUI makes a new one. Checked by screenshot (opened once, quit again: it was not running). Marko to try OFF.
