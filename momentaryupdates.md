@@ -10,3 +10,11 @@ Marko 13.10.2026: convert to Swift (no more Lua / web pages). This page becomes 
 in /Applications; the Python stays in the repo until Marko confirms the Swift app.
 
 **Status:** built v1 13.10.2026: /Applications/Star Monitor (Mantra).app, signed Mantra Apps. Rows from ~/.config/star-rows.json in the star's order; START / STOP (Swift apps directly, Lua apps through STAR.command); OPEN NOW with ▲▼ (STAR.openOrder); MY ORDER ▲▼ (STAR.order); ALPHABET, MOST RUN (TODAY / 7 DAYS / ALL TIME), BY FOLDER, RUNNING FIRST; filter; ALL OFF; NEXT RUN. Checked by screenshot: 28 rows, 13 on, the ledger's times. monitor.py kept until Marko confirms.
+
+## 19.10.2026: ON / OFF at the top of the window
+
+> "When I select any of the apps, the user interface opens up. In the top of every user interface, there will now be an on/off switch ... If I say on, I close it's on ... When I just switch the check mark, and that's how I activate it. This is gone. Let's work like this. This is the workflow now." (Marko, 19.10.2026; the rule in MANTRA_MANIFEST modules/swift-apps.md, "ON / OFF at the top of every window")
+
+The first row of the main window is ON / OFF; OFF stops the engine and quits; closing the window leaves the app on; the star only opens it.
+
+**Status:** saved before any code.
