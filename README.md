@@ -17,7 +17,8 @@ between sessions." The PERMANENT / FOR NOW tag is gone; opening an app is what m
 
 The first row of the window is **STAR MONITOR ON OFF** with the version (Marko, 19.10.2026: "In the top of every
 user interface, there will now be an on/off switch"). ON is lit while it runs; OFF quits the app. Closing the window
-leaves it on, and the star's open (a reopen) brings the window back.
+leaves it on, and the star's open (a reopen) brings the window back. v3: a **✕** at the far upper-right corner, on
+the same row, closes the window only; the app stays on (Marko, 19.10.2026: "It's far upper right corner").
 
 ## What it does
 

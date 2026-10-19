@@ -25,4 +25,4 @@ The first row of the main window is ON / OFF; OFF stops the engine and quits; cl
 
 A ✕ at the window's top-right corner, on the ON / OFF row: it closes the window only, the app stays ON. Every other dialog gets the same ✕ in its corner. The title bar and its traffic lights stay.
 
-**Status:** saved before any code.
+**Status:** v3 built 19.10.2026: ✕ (SF Symbol xmark, grey, 28×28 hit area) at the far right of the ON / OFF row, after v3; performClose on the window, the app stays on. No other dialogs in this app. Checked by screenshot of the window (opened once, quit again: it was not running). Marko to try ✕ and OFF.

@@ -13,7 +13,7 @@
 import SwiftUI
 import AppKit
 
-let VERSION = 2
+let VERSION = 3
 let RELEASES = "https://github.com/markoboskoauroville/STAR_MONITOR/releases/latest"
 let HOME = NSHomeDirectory()
 let CONF = HOME + "/.config"
@@ -262,6 +262,17 @@ struct Word: View {
     }
 }
 
+// ✕ at the far upper-right corner closes the window only; the app stays ON (Marko, 19.10.2026: "please unify the
+// position of the close button on every application. It's far upper right corner.")
+struct CloseX: View {
+    var body: some View {
+        Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundColor(GREY)
+            .frame(width: 28, height: 28).contentShape(Rectangle())
+            .onTapGesture { NSApp.keyWindow?.performClose(nil) }
+            .help("close the window; Star Monitor stays on")
+    }
+}
+
 enum View_: String, CaseIterable { case order = "MY ORDER", alpha = "ALPHABET", most = "MOST RUN", folder = "BY FOLDER", running = "RUNNING FIRST" }
 enum Span: String, CaseIterable { case today = "TODAY", week = "7 DAYS", all = "ALL TIME" }
 
@@ -338,6 +349,7 @@ struct MonitorView: View {
                 Spacer()
                 Text("v\(VERSION)").font(.system(size: 11, design: .monospaced)).foregroundColor(GREY)
                     .onTapGesture { NSWorkspace.shared.open(URL(string: RELEASES)!) }
+                CloseX()
             }
             HStack {
                 Text("\(m.on.values.filter { $0 }.count) of \(m.rows.count) on").font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundColor(AMBER)
@@ -381,7 +393,7 @@ struct MonitorView: View {
                 Spacer()
             }
         }
-        .padding(20).frame(minWidth: 900, minHeight: 560).background(INK).preferredColorScheme(.dark)
+        .padding(.horizontal, 20).padding(.bottom, 20).padding(.top, 8).padding(.trailing, -12).frame(minWidth: 900, minHeight: 560).background(INK).preferredColorScheme(.dark)
     }
 }
 
