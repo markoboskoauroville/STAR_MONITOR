@@ -26,3 +26,9 @@ The first row of the main window is ON / OFF; OFF stops the engine and quits; cl
 A ✕ at the window's top-right corner, on the ON / OFF row: it closes the window only, the app stays ON. Every other dialog gets the same ✕ in its corner. The title bar and its traffic lights stay.
 
 **Status:** v3 built 19.10.2026: ✕ (SF Symbol xmark, grey, 28×28 hit area) at the far right of the ON / OFF row, after v3; performClose on the window, the app stays on. No other dialogs in this app. Checked by screenshot of the window (opened once, quit again: it was not running). Marko to try ✕ and OFF.
+
+## 31.10.2026: ON, OFF and TOP in every application
+
+> "Please go to all the interface of my applications. Each needs to have the same user interface elements. On, off and top. Please build it in every application." (Marko, 31.10.2026; MANTRA_MANIFEST modules/swift-apps.md, "The first row of every app: ON OFF … TOP ✕")
+
+**Status:** pending.
