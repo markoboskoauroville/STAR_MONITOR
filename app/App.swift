@@ -13,7 +13,7 @@
 import SwiftUI
 import AppKit
 
-let VERSION = 3
+let VERSION = 4
 let RELEASES = "https://github.com/markoboskoauroville/STAR_MONITOR/releases/latest"
 let HOME = NSHomeDirectory()
 let CONF = HOME + "/.config"
@@ -313,6 +313,7 @@ struct MonitorView: View {
     @ObservedObject var m: Monitor
     @AppStorage("view") var view = View_.order.rawValue
     @AppStorage("span") var span = Span.week.rawValue
+    @AppStorage("onTop") private var onTop = false
     @State var filter = ""
 
     var shown: [Row] {
@@ -346,11 +347,19 @@ struct MonitorView: View {
                 Text("STAR MONITOR").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(GREY)
                 Word(text: "ON", on: true) {}
                 Word(text: "OFF", on: false) { NSApp.terminate(nil) }
+                    .axButton("Off", id: "off") { DispatchQueue.main.async { NSApp.terminate(nil) } }
                 Spacer()
                 Text("v\(VERSION)").font(.system(size: 11, design: .monospaced)).foregroundColor(GREY)
                     .onTapGesture { NSWorkspace.shared.open(URL(string: RELEASES)!) }
+                // v4: TOP beside ✕ (Marko, 31.10.2026: "On, off and top. Please build it in every application"):
+                // green = the window stays above every other window; remembered in "onTop", applied at launch
+                Word(text: "TOP", on: onTop) { onTop.toggle(); floatMonitor(onTop) }
+                    .axButton("Top", id: "top", value: onTop ? "on" : "off") { onTop.toggle(); floatMonitor(onTop) }
+                    .help("Always on top: green, the window stays above every other window")
                 CloseX()
+                    .axButton("Close window", id: "close") { (NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible })?.performClose(nil) }
             }
+            .onAppear { DispatchQueue.main.async { floatMonitor(onTop) } }
             HStack {
                 Text("\(m.on.values.filter { $0 }.count) of \(m.rows.count) on").font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundColor(AMBER)
                 Spacer()
@@ -394,6 +403,23 @@ struct MonitorView: View {
             }
         }
         .padding(.horizontal, 20).padding(.bottom, 20).padding(.top, 8).padding(.trailing, -12).frame(minWidth: 900, minHeight: 560).background(INK).preferredColorScheme(.dark)
+    }
+}
+
+// v4: TOP lifts every Star Monitor window above the others (.floating) or lets it back (.normal)
+func floatMonitor(_ on: Bool) {
+    for w in NSApp.windows where w.title.hasPrefix("Star Monitor") { w.level = on ? .floating : .normal }
+}
+
+// v4: every control of the first row is an Accessibility button (MANTRA_MANIFEST swift-apps.md, "Accessibility built in")
+extension View {
+    func axButton(_ label: String, id: String, value: String? = nil, _ action: @escaping () -> Void) -> some View {
+        accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(id)
+            .accessibilityValue(value ?? "")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, action)
     }
 }
 

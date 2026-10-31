@@ -31,4 +31,4 @@ A ✕ at the window's top-right corner, on the ON / OFF row: it closes the windo
 
 > "Please go to all the interface of my applications. Each needs to have the same user interface elements. On, off and top. Please build it in every application." (Marko, 31.10.2026; MANTRA_MANIFEST modules/swift-apps.md, "The first row of every app: ON OFF … TOP ✕")
 
-**Status:** pending.
+**Status:** done 31.10.2026, v4: the first row is STAR MONITOR ON OFF … v4 TOP ✕. TOP is green while the window floats above every other window (NSWindow.level .floating), grey otherwise; remembered in UserDefaults "onTop" and applied when the window appears. OFF, TOP and ✕ are Accessibility buttons (`off`, `top`, `close`). Checked: opened in the background (it was not running), the three identifiers read through Accessibility, the window captured by its id at its minimum width (900 pt): nothing cut, nothing overlapping; quit again through `off`. Marko to try TOP.

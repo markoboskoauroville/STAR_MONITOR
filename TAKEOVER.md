@@ -13,3 +13,5 @@
 6. State is the star's: `~/.config/star-running.json` (what is open, so what comes back; the permanent
    file was taken out 20.9.2026), `~/.config/star-time.json`,
    `~/.config/star-order.json`. The log is `~/.star_monitor/monitor.log`. Nothing generated is in the repository.
+
+7. The first row (v4, 31.10.2026): STAR MONITOR ON OFF … v4 TOP ✕; TOP keeps the window above the others (UserDefaults `onTop`); OFF, TOP and ✕ answer Accessibility as `off`, `top`, `close`.
