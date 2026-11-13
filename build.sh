@@ -32,6 +32,6 @@ cat > "$APP/Contents/Info.plist" <<PL
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PL
-codesign --force -s "Mantra Apps" "$APP"
-rm -rf "/Applications/$NAME.app"; cp -R "$APP" /Applications/
-echo "built $APP (v$V) and installed it in /Applications"
+codesign --force -s "${SIGN:-Mantra Apps}" "$APP"
+if [ -z "$NO_INSTALL" ]; then rm -rf "/Applications/$NAME.app"; cp -R "$APP" /Applications/; fi
+echo "built $APP (v$V)"

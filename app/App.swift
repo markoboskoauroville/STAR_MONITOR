@@ -4,16 +4,15 @@
 // Same work as the page: every app of the star with START / STOP, OPEN NOW on top in his own order, the star's
 // order, the time each has run (today, 7 days, all time, from the star's ledger ~/.config/star-time.json) and the
 // five views. The rows are the Swift star's table, ~/.config/star-rows.json: kind "app" is a Swift .app opened and
-// quit here directly, kind "lua" still lives in Hammerspoon and is asked through `hs` (STAR.command). `hs -c`
-// hangs past 16 KB of output (STAR_SWIFT LESSONS 1), so the big answer comes back through a file.
+// quit here directly; kind "lua" rows have no hand any more (v5, 13.11.2026: no Hammerspoon, no `hs`): they show off and
+// wait for their Swift version.
 //
-// ONE WRITER (STAR_SWIFT LESSONS 5): while Hammerspoon runs, the Lua star owns star-running.json, star-time.json and
-// the two order files, and this window asks it (STAR.remember, STAR.order, STAR.openOrder). When Hammerspoon is gone
-// it writes the order files and the running set itself; it never counts time (that is the Swift star's clock).
+// ONE WRITER (STAR_SWIFT LESSONS 5): this window writes the two order files and the running set itself (v5, 13.11.2026:
+// no Hammerspoon to ask); it never counts time (that is the Swift star's clock).
 import SwiftUI
 import AppKit
 
-let VERSION = 4
+let VERSION = 5
 let RELEASES = "https://github.com/markoboskoauroville/STAR_MONITOR/releases/latest"
 let HOME = NSHomeDirectory()
 let CONF = HOME + "/.config"
@@ -23,8 +22,6 @@ let OPEN_FILE = CONF + "/star-open-order.json"
 let RUNNING_FILE = CONF + "/star-running.json"
 let TIME_FILE = CONF + "/star-time.json"
 let GROUPS_FILE = CONF + "/star-groups.json"
-let HS = "/opt/homebrew/bin/hs"
-let HS_BUNDLE = "org.hammerspoon.Hammerspoon"
 
 let GREEN = Color(red: 0x33/255, green: 0xD1/255, blue: 0x7A/255)
 let GREY = Color(red: 0x7A/255, green: 0x80/255, blue: 0x87/255)
@@ -32,7 +29,7 @@ let AMBER = Color(red: 0xE8/255, green: 0xA3/255, blue: 0x3D/255)
 let INK = Color(red: 0x0B/255, green: 0x0D/255, blue: 0x10/255)
 let LINE = Color(white: 1, opacity: 0.06)
 
-// MARK: files and Hammerspoon
+// MARK: files
 
 func readJSON(_ path: String) -> Any? {
     guard let d = FileManager.default.contents(atPath: path) else { return nil }
@@ -43,29 +40,6 @@ func writeJSON(_ obj: Any, _ path: String) {
     if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
         try? d.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
-}
-func hsAlive() -> Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: HS_BUNDLE).isEmpty }
-@discardableResult
-func hs(_ lua: String, timeout: Int = 8) -> String? {
-    guard hsAlive(), FileManager.default.isExecutableFile(atPath: HS) else { return nil }
-    let p = Process(); p.executableURL = URL(fileURLWithPath: HS); p.arguments = ["-t", String(timeout), "-c", lua]
-    let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
-    do { try p.run() } catch { return nil }
-    let d = out.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
-    return String(data: d, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-// every Lua app's on/off in one question, through a file (hs -c stops at 16 KB)
-func hsStates() -> [String: Bool]? {
-    let tmp = NSTemporaryDirectory() + "star-monitor-list.json"
-    guard hs("local f=io.open('\(tmp)','w'); f:write(STAR.list()); f:close(); return 'ok'") == "ok",
-          let j = readJSON(tmp) as? [String: Any], let apps = j["apps"] as? [[String: Any]] else { return nil }
-    var s: [String: Bool] = [:]
-    for a in apps { if let k = a["key"] as? String { s[k] = (a["on"] as? Bool) ?? false } }
-    return s
-}
-// a Lua list literal of strings, for STAR.order / STAR.openOrder
-func luaList(_ keys: [String]) -> String {
-    "{" + keys.map { "'" + $0.replacingOccurrences(of: "'", with: "") + "'" }.joined(separator: ",") + "}"
 }
 
 // MARK: the apps
@@ -90,7 +64,6 @@ final class Monitor: ObservableObject {
     @Published var on: [String: Bool] = [:]
     @Published var times: [String: Times] = [:]
     @Published var openOrder: [String] = []
-    @Published var hsUp = false
     @Published var busy: Set<String> = []
     @Published var said = ""
     private var timer: Timer?
@@ -118,7 +91,7 @@ final class Monitor: ObservableObject {
 
     func bundleID(_ r: Row) -> String? { r.app.flatMap { Bundle(url: URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath))?.bundleIdentifier } }
     func runningApps(_ r: Row) -> [NSRunningApplication] { bundleID(r).map { NSRunningApplication.runningApplications(withBundleIdentifier: $0) } ?? [] }
-    func usable(_ r: Row) -> Bool { r.kind == "app" ? r.app.map { FileManager.default.fileExists(atPath: NSString(string: $0).expandingTildeInPath) } ?? false : hsUp }
+    func usable(_ r: Row) -> Bool { r.kind == "app" && (r.app.map { FileManager.default.fileExists(atPath: NSString(string: $0).expandingTildeInPath) } ?? false) }
     func group(_ r: Row) -> String {
         if let g = (readJSON(GROUPS_FILE) as? [String: Any])?[r.key] as? String, !g.isEmpty { return g }
         return r.group ?? "Other"
@@ -129,13 +102,10 @@ final class Monitor: ObservableObject {
         asking = true
         let rows = self.rows
         DispatchQueue.global().async {
-            let up = hsAlive()
-            let lua = up ? hsStates() : nil
             DispatchQueue.main.async {
                 self.asking = false
-                self.hsUp = up
                 var on: [String: Bool] = [:]
-                for r in rows { on[r.key] = r.kind == "app" ? !self.runningApps(r).isEmpty : (lua?[r.key] ?? (up ? self.on[r.key] ?? false : false)) }
+                for r in rows { on[r.key] = r.kind == "app" && !self.runningApps(r).isEmpty }
                 self.on = on
                 self.readTimes()
                 let o = ((readJSON(OPEN_FILE) as? [String: Any])?["open"] as? [String]) ?? self.openOrder
@@ -184,17 +154,12 @@ final class Monitor: ObservableObject {
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                if hsAlive() { DispatchQueue.global().async { hs("STAR.remember()") } } else { self.rememberHere() }
+                self.rememberHere()
                 self.busy.remove(r.key); self.refresh()
-            }
-        } else {
-            DispatchQueue.global().async {
-                let out = hs("local ok, msg = STAR.command('\(r.key)', '\(wasOn ? "stop" : "start")'); return tostring(msg)", timeout: 25)
-                DispatchQueue.main.async { self.said = out ?? "Hammerspoon did not answer"; self.busy.remove(r.key); self.refresh() }
             }
         }
     }
-    // Hammerspoon gone: what is open stays open; a Lua app's wish is kept until Hammerspoon can run it again
+    // what is open stays open; a Lua row's wish is kept until its Swift version exists
     func rememberHere() {
         let before = Set((readJSON(RUNNING_FILE) as? [String]) ?? [])
         writeJSON(rows.filter { $0.kind == "app" ? (on[$0.key] ?? false) || !runningApps($0).isEmpty : before.contains($0.key) }.map { $0.key }, RUNNING_FILE)
@@ -206,11 +171,10 @@ final class Monitor: ObservableObject {
         DispatchQueue.global().async {
             for r in list {
                 if r.kind == "app" { DispatchQueue.main.sync { self.runningApps(r).forEach { $0.terminate() } } }
-                else { hs("STAR.command('\(r.key)','stop')", timeout: 20) }
             }
             Thread.sleep(forTimeInterval: 1.5)
             DispatchQueue.main.async {
-                if hsAlive() { hs("STAR.remember()") } else { writeJSON([String](), RUNNING_FILE) }
+                writeJSON([String](), RUNNING_FILE)
                 self.said = "all off"; self.refresh()
             }
         }
@@ -223,9 +187,7 @@ final class Monitor: ObservableObject {
         keys.swapAt(i, i + d)
         let byKey = Dictionary(uniqueKeysWithValues: rows.map { ($0.key, $0) })
         rows = keys.compactMap { byKey[$0] }
-        DispatchQueue.global().async {
-            if hsAlive() { hs("return tostring(STAR.order(\(luaList(keys))))", timeout: 15) } else { writeJSON(["order": keys], ORDER_FILE) }
-        }
+        DispatchQueue.global().async { writeJSON(["order": keys], ORDER_FILE) }
     }
 
     // OPEN NOW: the running apps in his order; an app that is off keeps its slot (star.lua M.openOrder)
@@ -246,9 +208,7 @@ final class Monitor: ObservableObject {
         }
         for k in want[n...] where !taken.contains(k) { out.append(k); taken.insert(k) }
         openOrder = out
-        DispatchQueue.global().async {
-            if hsAlive() { hs("return tostring(STAR.openOrder(\(luaList(want))))", timeout: 15) } else { writeJSON(["open": out], OPEN_FILE) }
-        }
+        DispatchQueue.global().async { writeJSON(["open": out], OPEN_FILE) }
     }
 }
 
@@ -363,7 +323,7 @@ struct MonitorView: View {
             HStack {
                 Text("\(m.on.values.filter { $0 }.count) of \(m.rows.count) on").font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundColor(AMBER)
                 Spacer()
-                if !m.hsUp { Text("Hammerspoon is off: the Lua apps cannot start").font(.system(size: 11, design: .monospaced)).foregroundColor(AMBER) }
+                if m.rows.contains(where: { $0.kind == "lua" }) { Text("a Lua row waits for its Swift version").font(.system(size: 11, design: .monospaced)).foregroundColor(AMBER) }
                 Word(text: "ALL OFF", on: false) { m.allOff() }
             }
             HStack(spacing: 0) {

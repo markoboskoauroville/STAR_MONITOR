@@ -32,3 +32,9 @@ A ✕ at the window's top-right corner, on the ON / OFF row: it closes the windo
 > "Please go to all the interface of my applications. Each needs to have the same user interface elements. On, off and top. Please build it in every application." (Marko, 31.10.2026; MANTRA_MANIFEST modules/swift-apps.md, "The first row of every app: ON OFF … TOP ✕")
 
 **Status:** done 31.10.2026, v4: the first row is STAR MONITOR ON OFF … v4 TOP ✕. TOP is green while the window floats above every other window (NSWindow.level .floating), grey otherwise; remembered in UserDefaults "onTop" and applied when the window appears. OFF, TOP and ✕ are Accessibility buttons (`off`, `top`, `close`). Checked: opened in the background (it was not running), the three identifiers read through Accessibility, the window captured by its id at its minimum width (900 pt): nothing cut, nothing overlapping; quit again through `off`. Marko to try TOP.
+
+## 13.11.2026: no Hammerspoon any more
+
+> "Let me know why this Hammer Spoon is still running when I'm converting everything to Swift. If something is not converted, please create agents to convert anything that is still on Hammer Spoon to Swift right now." (Marko, 13.11.2026)
+
+**Status:** v5 written 13.11.2026. The window no longer calls `hs` at all (no hs(), hsAlive(), hsStates(), STAR.* Lua questions): it writes the order files and the running set itself, a kind "lua" row shows off and waits for its Swift version (the three that are left: a1, mackie, midikeys, being converted). The old page monitor.py (:8851, full of `hs -c`) is deleted. First GitHub workflow (mac-swift.yml); build.sh honours SIGN and NO_INSTALL. Built only by GitHub.
