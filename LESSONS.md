@@ -33,3 +33,7 @@
    shell the star spawns drops its pipes first (spawn.lua), and the page keeps the star's last answer in
    ~/.star_monitor/last-state.json and shows it, with the error above, when the star is silent.
 
+
+## 13.11.2026
+
+- 13.11.2026: a public unpromoted repo has no README and no description; what it is lives in TAKEOVER.

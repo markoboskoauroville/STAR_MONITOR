@@ -109,3 +109,7 @@ GET  /health                 POST /quit
 - No key, no network. Everything is on 127.0.0.1.
 
 **The list is never empty** (15.9.2026). The star's last answer is kept in `~/.star_monitor/last-state.json`; when the star does not answer, the page shows that list as it last was, with the error above it. The only time the page shows fewer than all the apps is the filter by name.
+
+## State at close, 13.11.2026
+
+v5 (13.11.2026): no Hammerspoon; workflow from the manifest; the old page removed; public repo has no README, the description lives here.
